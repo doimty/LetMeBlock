@@ -187,6 +187,15 @@ class NativeTests(unittest.TestCase):
         self.assertIn('if (etcHosts) fclose(etcHosts);', source)
         self.assertIn('libSandy_applyProfile("LetMeBlock");', source)
 
+    def test_logos_groups_initialized_once_before_cpp(self):
+        # Logos runs before C preprocessing and sees both #if branches.
+        import re
+        source = (ROOT / "Tweak.xm").read_text()
+        groups = re.findall(r"%group\s+(\w+)", source)
+        initialized = re.findall(r"%init\((\w+)\)", source)
+        self.assertCountEqual(initialized, groups)
+        self.assertEqual(len(initialized), len(set(initialized)))
+
     def test_macho_metadata_and_negative_cases(self):
         valid = fake_macho()
         self.assertEqual(inspect_macho(valid)[0]["architecture"], "arm64e")

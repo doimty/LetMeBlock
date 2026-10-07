@@ -140,19 +140,19 @@ void (*init_helper_service_block_invoke)(id, xpc_object_t);
             os_variant_has_internal_diagnostics = (bool (*)(const char *))LMBFindSymbolCallable(libsys, "_os_variant_has_internal_diagnostics");
 #if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
             if (os_variant_has_internal_diagnostics) {
+#endif
                 %init(mDNSResponder_iOS12);
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
             }
-#else
-            %init(mDNSResponder_iOS12);
 #endif
         }
 #if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
         // A missing private symbol must not become a null MSHookFunction call.
         if (mDNS_StatusCallback) {
+#endif
             %init(mDNSResponderCounter);
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
         }
-#else
-        %init(mDNSResponderCounter);
 #endif
         %init(mDNSResponder);
         // Spawn mDNSResponderHelper if not already so that it will unlock mDNSResponder's memory limit as soon as possible
