@@ -1,0 +1,66 @@
+name: Native RootHide
+on:
+  push:
+    branches: [feat/native-roothide]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-roothide-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      THEOS: ${{ runner.temp }}/theos
+      LMB_INPUTS: ${{ runner.temp }}/lmb-inputs
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install build utilities (never install debs)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for formula in make ldid xz dpkg; do
+            brew list --versions "$formula" >/dev/null || brew install "$formula"
+          done
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+      - name: Portable regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-metadata
+          python3 tests/test_native.py 2>&1 | tee build-metadata/tests.txt
+          git diff --check
+      - name: Prepare pinned Theos, SDK and existing libSandy
+        run: python3 ci/prepare.py --theos "$THEOS" --work "$LMB_INPUTS"
+      - name: Build native package only
+        shell: bash
+        run: |
+          set -euo pipefail
+          gmake clean package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 2>&1 | tee build-metadata/build.txt
+      - name: Validate real package read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          debs=(packages/*.deb)
+          test "${#debs[@]}" -eq 1
+          python3 scripts/validate_native_package.py "${debs[0]}" | tee build-metadata/package-validation.json
+          shasum -a 256 "${debs[0]}" > build-metadata/SHA256SUMS
+          cp "$LMB_INPUTS/build-inputs.json" "$LMB_INPUTS/libSandy.LICENSE" build-metadata/
+          git rev-parse HEAD > build-metadata/source-commit.txt
+          xcodebuild -version > build-metadata/xcode.txt
+          xcrun clang --version > build-metadata/clang.txt
+          xcrun otool -L .theos/obj/LetMeBlock.dylib > build-metadata/linked-libraries.txt
+          xcrun nm -m .theos/obj/LetMeBlock.dylib > build-metadata/symbols.txt
+      - name: Upload package and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: letmeblock-native-${{ github.run_id }}
+          path: |
+            packages/*.deb
+            build-metadata/
+          if-no-files-found: error
+          retention-days: 30

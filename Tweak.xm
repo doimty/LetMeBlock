@@ -1,8 +1,19 @@
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+#import "include/LMBNative.h"
+#else
 #import <PSHeader/Misc.h>
-#import <libSandy.h>
 #import <version.h>
-#import <rootless.h>
+#define LMBFindSymbolCallable _PSFindSymbolCallable
+#define LMBFindSymbolReadable _PSFindSymbolReadable
+#define LMB_IOS12_OR_NEWER IS_IOS_OR_NEWER(iOS_12_0)
+#endif
+#import "include/LMBPaths.h"
+#import <libSandy.h>
 #import <HBLog.h>
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <sys/sysctl.h>
 #include <xpc/xpc.h>
@@ -13,9 +24,6 @@
 #define MEMORYSTATUS_CMD_SET_PROCESS_IS_MANAGED 16
 #define JETSAM_PRIORITY_CRITICAL 19
 #define JETSAM_MEMORY_LIMIT 512
-#define DEFAULT_HOSTS_PATH "/etc/hosts"
-#define NEW_HOSTS_PATH ROOT_PATH("/etc/hosts.lmb")
-#define ROOTLESS_NEW_HOSTS_PATH "/var/jb/etc/hosts"
 
 typedef struct memorystatus_priority_properties {
     int32_t  priority;
@@ -62,7 +70,7 @@ bool (*os_variant_has_internal_diagnostics)(const char *) = NULL;
 
 %end
 
-%group mDNSResponder
+%group mDNSResponderCounter
 
 unsigned int *mDNS_StatusCallback_allocated = NULL;
 
@@ -74,18 +82,16 @@ void (*mDNS_StatusCallback)(void *, int) = NULL;
     %orig(arg1, arg2);
 }
 
-// Open UHB's hosts instead of DEFAULT_HOSTS_PATH
-// This new UHB will place all the blocked addresses to NEW_HOSTS_PATH so we won't mess up with the original file
-// If in any cases NEW_HOSTS_PATH got corrupted, we fallback to the original one (DEFAULT_HOSTS_PATH)
+%end
+
+%group mDNSResponder
+
+// Only an open failure triggers fallback; readable content is not validated.
 %hookf(FILE *, fopen, const char *path, const char *mode) {
-    if (path && strcmp(path, DEFAULT_HOSTS_PATH) == 0) {
-        if (etcHosts) return etcHosts;
-        FILE *r = %orig(ROOTLESS_NEW_HOSTS_PATH, mode);
-        if (r) return r;
-        r = %orig(NEW_HOSTS_PATH, mode);
-        if (r) return r;
-    }
-    return %orig(path, mode);
+    return LMBOpenHosts(path, mode, etcHosts,
+        [](const char *candidate, const char *openMode) -> FILE * {
+            return %orig(candidate, openMode);
+        }, LMBManagedPath);
 }
 
 %end
@@ -123,24 +129,39 @@ void (*init_helper_service_block_invoke)(id, xpc_object_t);
         // mDNSResponder (_mDNSResponder)
         HBLogDebug(@"LetMeBlock: in mDNSResponder");
         libSandy_applyProfile("LetMeBlock");
-        etcHosts = fopen(ROOTLESS_NEW_HOSTS_PATH, "r");
-        if (etcHosts == NULL) etcHosts = fopen(NEW_HOSTS_PATH, "r");
+        // Cache only managed streams, as upstream does. Raw fallback stays in
+        // the hook so a missing managed file can be retried on a later open.
+        etcHosts = LMBOpenManagedHosts("r", fopen, LMBManagedPath);
         MSImageRef ref = MSGetImageByName("/usr/sbin/mDNSResponder");
-        mDNS_StatusCallback = (void (*)(void *, int))_PSFindSymbolCallable(ref, "_mDNS_StatusCallback");
-        mDNS_StatusCallback_allocated = (unsigned int *)_PSFindSymbolReadable(ref, "_mDNS_StatusCallback.allocated");
-        if (IS_IOS_OR_NEWER(iOS_12_0)) {
+        mDNS_StatusCallback = (void (*)(void *, int))LMBFindSymbolCallable(ref, "_mDNS_StatusCallback");
+        mDNS_StatusCallback_allocated = (unsigned int *)LMBFindSymbolReadable(ref, "_mDNS_StatusCallback.allocated");
+        if (LMB_IOS12_OR_NEWER) {
             MSImageRef libsys = MSGetImageByName("/usr/lib/system/libsystem_darwin.dylib");
-            os_variant_has_internal_diagnostics = (bool (*)(const char *))_PSFindSymbolCallable(libsys, "_os_variant_has_internal_diagnostics");
+            os_variant_has_internal_diagnostics = (bool (*)(const char *))LMBFindSymbolCallable(libsys, "_os_variant_has_internal_diagnostics");
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+            if (os_variant_has_internal_diagnostics) {
+                %init(mDNSResponder_iOS12);
+            }
+#else
             %init(mDNSResponder_iOS12);
+#endif
         }
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+        // A missing private symbol must not become a null MSHookFunction call.
+        if (mDNS_StatusCallback) {
+            %init(mDNSResponderCounter);
+        }
+#else
+        %init(mDNSResponderCounter);
+#endif
         %init(mDNSResponder);
         // Spawn mDNSResponderHelper if not already so that it will unlock mDNSResponder's memory limit as soon as possible
-        void (*SendDict_ToServer)(xpc_object_t) = (void (*)(xpc_object_t))_PSFindSymbolCallable(ref, "_SendDict_ToServer");
+        void (*SendDict_ToServer)(xpc_object_t) = (void (*)(xpc_object_t))LMBFindSymbolCallable(ref, "_SendDict_ToServer");
         if (SendDict_ToServer) {
             xpc_object_t dict = xpc_dictionary_create(NULL, NULL, 0);
             SendDict_ToServer(dict);
         } else {
-            void (*Init_Connection)(void) = (void (*)(void))_PSFindSymbolCallable(ref, "_Init_Connection");
+            void (*Init_Connection)(void) = (void (*)(void))LMBFindSymbolCallable(ref, "_Init_Connection");
             if (Init_Connection)
                 Init_Connection();
         }
@@ -148,8 +169,8 @@ void (*init_helper_service_block_invoke)(id, xpc_object_t);
         // mDNSResponderHelper (root)
         HBLogDebug(@"LetMeBlock: in mDNSResponderHelper");
         MSImageRef ref = MSGetImageByName("/usr/sbin/mDNSResponderHelper");
-        accept_client_block_invoke = (void (*)(int, xpc_object_t))_PSFindSymbolCallable(ref, "___accept_client_block_invoke");
-        init_helper_service_block_invoke = (void (*)(id, xpc_object_t))_PSFindSymbolCallable(ref, "___init_helper_service_block_invoke");
+        accept_client_block_invoke = (void (*)(int, xpc_object_t))LMBFindSymbolCallable(ref, "___accept_client_block_invoke");
+        init_helper_service_block_invoke = (void (*)(id, xpc_object_t))LMBFindSymbolCallable(ref, "___init_helper_service_block_invoke");
         if (accept_client_block_invoke && init_helper_service_block_invoke) {
             %init(mDNSResponderHelper);
         }

@@ -1,0 +1,23 @@
+{
+  "theos": {
+    "repository": "https://github.com/roothide/theos.git",
+    "commit": "88506b2c22e9e07dd4ed055f23c9e398a117a2c7"
+  },
+  "sdk": {
+    "url": "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz",
+    "sha256": "5e0fd3f01266cce4ce012d4a99b38eb56578fca40d09edc81cd83dee958202fb"
+  },
+  "libsandy": {
+    "package": "com.opa334.libsandy",
+    "version": "1.1.6-4",
+    "architecture": "iphoneos-arm64e",
+    "url": "https://roothide.github.io/debfiles/com.opa334.libsandy_1.1.6-4_iphoneos-arm64e.deb",
+    "size": 19562,
+    "sha256": "81a1eeb17480b6ee200f8f4bf815892e6f58cc55f5aea6d7abe899db11da4bb5",
+    "header_commit": "9c77311172485e92bf0c439391be5a9565c877e4",
+    "header_url": "https://raw.githubusercontent.com/opa334/libSandy/9c77311172485e92bf0c439391be5a9565c877e4/libSandy.h",
+    "header_sha256": "5b1bf6902e5df9d63fd62221f842206afab895b6362f29d5f1e929debc39bc04",
+    "license_url": "https://raw.githubusercontent.com/opa334/libSandy/9c77311172485e92bf0c439391be5a9565c877e4/LICENSE",
+    "license_sha256": "6ec79f848deb860ae50faf63cd330aafef1dd17360ede0b4d718f4208a09a2bc"
+  }
+}
