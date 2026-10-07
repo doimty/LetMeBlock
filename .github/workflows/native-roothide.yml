@@ -13,8 +13,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 25
     env:
-      THEOS: ${{ runner.temp }}/theos
-      LMB_INPUTS: ${{ runner.temp }}/lmb-inputs
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -25,6 +23,8 @@ jobs:
           for formula in make ldid xz dpkg; do
             brew list --versions "$formula" >/dev/null || brew install "$formula"
           done
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
+          echo "LMB_INPUTS=$RUNNER_TEMP/lmb-inputs" >> "$GITHUB_ENV"
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: Portable regression tests
         shell: bash
