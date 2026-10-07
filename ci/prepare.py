@@ -44,6 +44,15 @@ def main():
     download(manifest["sdk"]["url"], manifest["sdk"]["sha256"], sdk)
     (theos / "sdks").mkdir(exist_ok=True)
     run("tar", "-xJf", str(sdk), "-C", str(theos / "sdks"))
+    if not (theos / "sdks/iPhoneOS16.5.sdk/SDKSettings.json").is_file():
+        raise ValueError("missing pinned iPhoneOS16.5.sdk")
+    # This SDK omits public XPC/launch headers. Supplement only those headers,
+    # not a macOS sysroot or runtime library; retain their original declarations.
+    xpc = manifest["xpc_headers"]
+    for name, digest in xpc["files"].items():
+        destination = theos / "include" / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        download(xpc["base_url"] + name, digest, destination)
 
     sandy = manifest["libsandy"]
     deb = work / "libsandy.deb"

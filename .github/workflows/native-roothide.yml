@@ -39,7 +39,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gmake clean package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 2>&1 | tee build-metadata/build.txt
+          gmake clean package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 messages=yes KEEP_LOGOS_INTERMEDIATES=1 2>&1 | tee build-metadata/build.txt
+      - name: Preserve SDK and generated Logos evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          find .theos/obj -name 'Tweak.xm.mm' -exec cp '{}' build-metadata/Tweak.generated.mm \; 2>/dev/null || true
+          if test -f "$LMB_INPUTS/build-inputs.json"; then
+            cp "$LMB_INPUTS/build-inputs.json" "$LMB_INPUTS/libSandy.LICENSE" build-metadata/
+          fi
+          git rev-parse HEAD > build-metadata/source-commit.txt
+          xcodebuild -version > build-metadata/xcode.txt
+          xcrun clang --version > build-metadata/clang.txt
       - name: Validate real package read-only
         shell: bash
         run: |

@@ -17,6 +17,9 @@
 
 #include <sys/sysctl.h>
 #include <xpc/xpc.h>
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+#include "include/LMBXPC.h"
+#endif
 
 #define MEMORYSTATUS_CMD_SET_PRIORITY_PROPERTIES 2
 #define MEMORYSTATUS_CMD_SET_JETSAM_HIGH_WATER_MARK 5
@@ -112,12 +115,16 @@ void (*accept_client_block_invoke)(int, xpc_object_t);
 void (*init_helper_service_block_invoke)(id, xpc_object_t);
 %hookf(void, init_helper_service_block_invoke, id arg0, xpc_object_t obj) {
     HBLogDebug(@"LetMeBlock: init_helper_service_block_invoke");
+#if defined(THEOS_PACKAGE_SCHEME_ROOTHIDE)
+    pid_t pid = LMBXPCConnectionGetPID((xpc_connection_t)obj);
+#else
 #define ORIG_API_UNAVAILABLE(...) API_UNAVAILABLE(__VA_ARGS__)
 #undef API_UNAVAILABLE
 #define API_UNAVAILABLE(...)
     pid_t pid = xpc_connection_get_pid(obj);
 #undef API_UNAVAILABLE
 #define API_UNAVAILABLE(...) ORIG_API_UNAVAILABLE(__VA_ARGS__)
+#endif
     bypassJetsamMemoryLimit(pid);
     %orig;
 }

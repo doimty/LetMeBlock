@@ -39,13 +39,25 @@ def dylib_command(command, name):
     return struct.pack("<6I", command, length, 24, 0, 0, 0) + data.ljust(length - 24, b"\0")
 
 
-def fake_macho(minimum=15 << 16, subtype=0x80000002, sandy=None):
+def fake_macho(minimum=15 << 16, subtype=0x80000002, sandy=None, signed=True,
+               symbol="_libSandy_applyProfile", sandy_ordinal=1):
     commands = [struct.pack("<6I", 0x32, 24, 2, minimum, 18 << 16, 0)]
     commands += [dylib_command(0xd, "@loader_path/.jbroot/" + DYLIB_PATH),
                  dylib_command(0xc, sandy or "@loader_path/.jbroot/usr/lib/libsandy.dylib"),
-                 dylib_command(0xc, "@loader_path/.jbroot/usr/lib/libroothide.dylib")]
+                 dylib_command(0xc, "@loader_path/.jbroot/usr/lib/libroothide.dylib"),
+                 dylib_command(0xc, "@loader_path/.jbroot/usr/lib/libsubstrate.dylib")]
+    strings, symbols = b"\0", b""
+    for name, ordinal in ((symbol, sandy_ordinal), ("_MSFindSymbol", 3), ("_MSGetImageByName", 3), ("_MSHookFunction", 3)):
+        symbols += struct.pack("<IBBHQ", len(strings), 1, 0, ordinal << 8, 0)
+        strings += name.encode() + b"\0"
+    offset = 32 + sum(map(len, commands)) + 24 + (16 if signed else 0)
+    commands.append(struct.pack("<6I", 2, 24, offset, 4, offset + len(symbols), len(strings)))
+    signature = b"Synthetic signature fixture; not a trusted or executable binary"
+    if signed:
+        commands.append(struct.pack("<4I", 0x1d, 16, offset + len(symbols) + len(strings), len(signature)))
     data = b"".join(commands)
-    return struct.pack("<8I", 0xfeedfacf, 0x100000c, subtype, 6, len(commands), len(data), 0, 0) + data
+    return (struct.pack("<8I", 0xfeedfacf, 0x100000c, subtype, 6, len(commands), len(data), 0, 0)
+            + data + symbols + strings + (signature if signed else b""))
 
 
 def fake_tar(files, executable=()):
@@ -147,6 +159,37 @@ class NativeTests(unittest.TestCase):
             glue.write_text('#include "include/LMBNative.h"\nbool available() { if (LMB_IOS12_OR_NEWER) return true; return false; }\n')
             run(flags + ["-std=c++11", "-Wall", "-Werror", "-fsyntax-only", str(glue)])
 
+    def test_native_xpc_alias_preserves_signature_symbol_and_availability(self):
+        # Host-only stubs model distinct XPC pointer types and unavailable APIs.
+        # No Apple SDK compilation or real private-symbol execution occurs here.
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            (directory / "xpc").mkdir()
+            (directory / "xpc/xpc.h").write_text(
+                '#pragma once\n#include <sys/types.h>\n'
+                'typedef struct test_connection *xpc_connection_t;\n'
+                'typedef void *xpc_object_t;\n'
+                '#define API_UNAVAILABLE(...) __attribute__((unavailable))\n'
+                'extern "C" pid_t xpc_connection_get_pid(xpc_connection_t) API_UNAVAILABLE(ios);\n')
+            source = directory / "xpc-alias.cpp"
+            source.write_text(
+                '#include "include/LMBXPC.h"\n'
+                'static_assert(__is_same(decltype(&LMBXPCConnectionGetPID), '
+                'pid_t (*)(xpc_connection_t)), "XPC signature changed");\n'
+                'pid_t use(xpc_object_t object) { return LMBXPCConnectionGetPID((xpc_connection_t)object); }\n')
+            flags = ["clang++", "-std=c++11", "-Wall", "-Wextra", "-Werror", "-I.", "-I" + folder]
+            ir = run(flags + ["-S", "-emit-llvm", "-o", "-", str(source)])
+            self.assertIn("_xpc_connection_get_pid", ir)
+            self.assertNotIn("LMBXPCConnectionGetPID", ir)
+            for expression in ("xpc_connection_get_pid(c)", "still_unavailable()"):
+                source.write_text('#include "include/LMBXPC.h"\n'
+                                  'pid_t still_unavailable() API_UNAVAILABLE(ios);\n'
+                                  'pid_t bad(xpc_connection_t c) { (void)c; return ' + expression + '; }\n')
+                process = subprocess.run(flags + ["-fsyntax-only", str(source)], cwd=ROOT,
+                                         text=True, capture_output=True)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertIn("unavailable", process.stderr)
+
     def test_actual_fopen_lambda_adapter_compiles(self):
         source = (ROOT / "Tweak.xm").read_text()
         hook = source.split("%hookf(FILE *, fopen, const char *path, const char *mode) {", 1)[1].split("\n%end", 1)[0]
@@ -170,7 +213,7 @@ class NativeTests(unittest.TestCase):
                             "THEOS_PACKAGE_SCHEME=" + scheme, "LMB_LIBSANDY_INCLUDE_DIR=/fixture/include",
                             "LMB_LIBSANDY_LIB_DIR=/fixture/lib"]).strip().split("|")
             native = config("roothide")
-            self.assertEqual(native[:2], ["iphone:clang:latest:15.0", "arm64e"])
+            self.assertEqual(native[:2], ["iphone:clang:16.5:15.0", "arm64e"])
             self.assertNotIn("Xcode11", native[2])
             self.assertEqual(native[3:5], [VERSION, "sandy roothide"])
             self.assertIn("-I/fixture/include", native[5])
@@ -201,7 +244,10 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(inspect_macho(valid)[0]["architecture"], "arm64e")
         fat = struct.pack(">7I", 0xcafebabe, 1, 0x100000c, 0x80000002, 32, len(valid), 3) + b"\0" * 4 + valid
         self.assertEqual(inspect_macho(fat)[0]["minimum_ios"], (15, 0, 0))
-        for bad in (valid[:15], fake_macho(minimum=14 << 16), fake_macho(subtype=0),
+        for bad in (valid[:15], valid[:-1], fake_macho(minimum=14 << 16), fake_macho(subtype=0),
+                    fake_macho(signed=False), fake_macho(symbol="_wrong_applyProfile"),
+                    fake_macho(sandy_ordinal=2), fake_macho(sandy_ordinal=0),
+                    valid.replace(b"_MSHookFunction\0", b"_MSHookMissingX\0"),
                     fake_macho(sandy="/usr/lib/libsandy.dylib"), valid + b"/var/jb",
                     valid + b"rootless-compat", valid + b"roothidepatch"):
             with self.assertRaises(ValueError):

@@ -42,7 +42,7 @@ def thin_macho(blob):
     require(kind == 6, "expected MH_DYLIB")
     require(32 + size <= len(blob), "truncated load-command area")
     cursor, end = 32, 32 + size
-    dependencies, identities, platforms, signatures = [], [], [], 0
+    dependencies, identities, platforms, signatures, symtabs = [], [], [], 0, []
     for _ in range(count):
         require(cursor + 8 <= end, "truncated load command")
         command, length = struct.unpack_from("<II", blob, cursor)
@@ -64,6 +64,9 @@ def thin_macho(blob):
             require(length == 16, "invalid iOS-minimum command")
             minimum, sdk = struct.unpack_from("<II", value, 8)
             platforms.append((version_tuple(minimum), version_tuple(sdk)))
+        elif command == 0x2:
+            require(length == 24, "invalid symbol-table command")
+            symtabs.append(struct.unpack_from("<4I", value, 8))
         elif command == 0x1d:
             require(length == 16, "invalid code-signature command")
             offset, size_signature = struct.unpack_from("<II", value, 8)
@@ -75,14 +78,37 @@ def thin_macho(blob):
     require(platforms[0][1] >= platforms[0][0], "SDK older than deployment target")
     require(identities == ["@loader_path/.jbroot/Library/MobileSubstrate/DynamicLibraries/LetMeBlock.dylib"],
             "unexpected native dylib install name")
-    for name in ("libsandy.dylib", "libroothide.dylib"):
+    for name in ("libsandy.dylib", "libroothide.dylib", "libsubstrate.dylib"):
         require(f"@loader_path/.jbroot/usr/lib/{name}" in dependencies,
                 f"missing native {name} load command")
     require(all("/var/jb" not in name for name in dependencies), "rootless library dependency")
+    require(signatures == 1, "expected one embedded code-signature command (not a trust check)")
+    require(len(symtabs) == 1, "expected one symbol table")
+    symoff, nsyms, stroff, strsize = symtabs[0]
+    require(symoff + 16 * nsyms <= len(blob) and stroff + strsize <= len(blob),
+            "truncated symbol/string table")
+    strings = blob[stroff:stroff + strsize]
+    imports = {}
+    for index in range(nsyms):
+        string, kind, _, description, _ = struct.unpack_from("<IBBHQ", blob, symoff + index * 16)
+        if kind & 0xe0 or (kind & 0x0e) != 0 or not kind & 1:
+            continue
+        require(string < len(strings) and b"\0" in strings[string:], "invalid symbol string")
+        name = strings[string:].split(b"\0", 1)[0].decode()
+        ordinal = (description >> 8) & 255
+        imports[name] = dependencies[ordinal - 1] if 1 <= ordinal <= len(dependencies) else str(ordinal)
+    required_imports = {"_libSandy_applyProfile": "libsandy.dylib",
+                        "_MSFindSymbol": "libsubstrate.dylib",
+                        "_MSGetImageByName": "libsubstrate.dylib",
+                        "_MSHookFunction": "libsubstrate.dylib"}
+    for symbol, library in required_imports.items():
+        require(imports.get(symbol) == f"@loader_path/.jbroot/usr/lib/{library}",
+                f"missing/wrong native external symbol binding: {symbol}")
     return {"architecture": "arm64e", "cpu_subtype": hex(subtype),
             "minimum_ios": platforms[0][0], "sdk": platforms[0][1],
             "install_name": identities[0], "dependencies": dependencies,
-            "code_signature_commands": signatures}
+            "code_signature_commands": signatures,
+            "verified_imports": {name: imports[name] for name in required_imports}}
 
 
 def inspect_macho(blob):

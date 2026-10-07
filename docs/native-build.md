@@ -7,7 +7,8 @@ This is an **unverified-on-device candidate**. Build only with the native RootHi
 `ci/dependencies.json` fixes the complete URLs/SHA-256 values:
 
 - RootHide Theos `88506b2c22e9e07dd4ed055f23c9e398a117a2c7`, fetched explicitly by SHA, including pinned submodules.
-- Theos iPhoneOS16.5.sdk archive, SHA-256 `5e0fd3f01266cce4ce012d4a99b38eb56578fca40d09edc81cd83dee958202fb`. Its internal Mach-O SDK version may be 16.4; this is not evidence of a wrong download. Deployment target is independently fixed to 15.0.
+- Theos iPhoneOS16.5.sdk archive, SHA-256 `5e0fd3f01266cce4ce012d4a99b38eb56578fca40d09edc81cd83dee958202fb`. Native `TARGET=iphone:clang:16.5:15.0` selects this SDK for compilation and linking, not the runner's newest SDK. Its internal Mach-O SDK version is 16.4; this is not evidence of a wrong download. Deployment target is independently fixed to 15.0.
+- That archive omits XPC/launch public headers. Only those eight headers are supplemented from the MacOSX11.3.sdk snapshot in phracker/MacOSX-SDKs `041600eda65c6a668f66cb7d56b7d1da3e8bcc93`, with individual SHA-256 pins in the manifest. No macOS library/sysroot is used or bundled, no SDK availability macros are patched.
 - Official `https://roothide.github.io/` package `com.opa334.libsandy` 1.1.6-4, iphoneos-arm64e, 19562 bytes, SHA-256 `81a1eeb17480b6ee200f8f4bf815892e6f58cc55f5aea6d7abe899db11da4bb5`.
 - Unmodified public libSandy header and its license from opa334/libSandy `9c77311172485e92bf0c439391be5a9565c877e4`. No source checkout/build of libSandy.
 
@@ -50,5 +51,7 @@ Native staging restricts payload to the tweak dylib, its original executable fil
 ## Semantics and unresolved device risks
 
 Only the exact raw `/etc/hosts` open is intercepted. Managed attempts use `jbroot("/etc/hosts")`, then `jbroot("/etc/hosts.lmb")`; if both opens fail, libc gets raw `/etc/hosts` unchanged. Open mode passes through; content is not validated. Constructor caches **only managed streams**, as upstream did. It never caches raw fallback, so later managed files can be retried. Existing stream-sharing/closing behavior is retained, not redesigned.
+
+Native XPC access uses `pid_t LMBXPCConnectionGetPID(xpc_connection_t)` with C linkage and the exact assembler label `_xpc_connection_get_pid`. The public headers define the PID accessor with `xpc_connection_t`, and `xpc_get_type` returns `xpc_type_t`; native code retains those types, explicitly casting the existing helper object to a connection. The helper hook's unverified private signature itself is unchanged. The alternate declaration is native-only: it neither redeclares the unavailable SDK identifier nor suppresses availability diagnostics. Host tests exercise the alias with an unavailable original declaration, verify its emitted symbol, and ensure other unavailability diagnostics remain active. This resolves compilation, not private API stability.
 
 Native symbol helpers use Substrate declarations and compiler ptrauth strip/sign (function-pointer key, zero discriminator), with no PSHeader vendoring. Native initialization skips absent callable private symbols, but symbol availability, actual private ABI signatures and PAC at runtime remain device-specific. The five existing hooks, helper flow, allocation counter and 512 MB jetsam policy are preserved. A null guard can avoid a null hook but cannot prove an OS-private function's ABI. No real DNS, sandbox extension consumption, injection, memory/stability, signature trust or device compatibility claim follows from compilation.
