@@ -1,6 +1,6 @@
 PACKAGE_VERSION = 1.3.0
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
-PACKAGE_VERSION = 1.3.0-1+native1
+PACKAGE_VERSION = 1.3.0-2
 # RootHide uses the modern arm64e ABI, not the legacy Xcode 11 toolchain.
 # Pin compilation and linking to the downloaded SDK, never the runner's latest.
 override TARGET = iphone:clang:16.5:15.0

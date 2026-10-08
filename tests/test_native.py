@@ -273,6 +273,20 @@ class NativeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 check({**control, "postinst": b"unexpected script"}, data)
 
+    def test_formal_version_upgrade_order(self):
+        self.assertRegex(VERSION, r"^[0-9]+(?:\.[0-9]+)*(?:-[0-9]+)?$")
+        self.assertEqual(run(['dpkg', '--compare-versions', VERSION, 'gt', '1.3.0-1+native1']), '')
+        self.assertEqual(run(['dpkg', '--compare-versions', VERSION, 'gt', '1.3.0']), '')
+
+    def test_mobile_archive_ownership_rejected(self):
+        for uid, gid in ((501, 0), (0, 20), (501, 20)):
+            stream = io.BytesIO()
+            with tarfile.open(fileobj=stream, mode='w') as archive:
+                entry = tarfile.TarInfo('Library'); entry.type = tarfile.DIRTYPE
+                entry.uid = uid; entry.gid = gid; archive.addfile(entry)
+            with self.assertRaisesRegex(ValueError, 'numeric root:root'):
+                read_tar(stream.getvalue())
+
     def test_archive_traversal_rejected(self):
         with self.assertRaises(ValueError):
             read_tar(fake_tar({"../etc/hosts": b"x"}))

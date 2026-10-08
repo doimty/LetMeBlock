@@ -1,7 +1,7 @@
 """Native package contract; build-time data only, never device operations."""
 
 PACKAGE = "com.ps.letmeblock"
-VERSION = "1.3.0-1+native1"
+VERSION = "1.3.0-2"
 ARCH = "iphoneos-arm64e"
 SANDY_VERSION = "1.1.6-4"
 DEPENDS = ("mobilesubstrate (>= 0.9.5000), firmware (>= 15.0), "

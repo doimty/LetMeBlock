@@ -21,6 +21,7 @@ def read_tar(blob):
         for entry in archive:
             path = PurePosixPath(entry.name)
             require(not path.is_absolute() and ".." not in path.parts, "unsafe archive path")
+            require(entry.uid == 0 and entry.gid == 0, "archive entries must be numeric root:root")
             name = str(path)
             if entry.isdir():
                 continue

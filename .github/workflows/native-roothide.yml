@@ -1,7 +1,7 @@
 name: Native RootHide
 on:
   push:
-    branches: [feat/native-roothide]
+    branches: [feat/native-roothide, release/letmeblock-1.3.0-2]
   workflow_dispatch:
 permissions:
   contents: read
@@ -58,6 +58,7 @@ jobs:
           set -euo pipefail
           debs=(packages/*.deb)
           test "${#debs[@]}" -eq 1
+          python3 ci/canonicalize_deb.py "${debs[0]}" | tee build-metadata/ownership-repack.txt
           python3 scripts/validate_native_package.py "${debs[0]}" | tee build-metadata/package-validation.json
           shasum -a 256 "${debs[0]}" > build-metadata/SHA256SUMS
           cp "$LMB_INPUTS/build-inputs.json" "$LMB_INPUTS/libSandy.LICENSE" build-metadata/

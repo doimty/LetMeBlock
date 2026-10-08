@@ -1,5 +1,10 @@
 # Native RootHide port plan
 
+Current release follow-up: the user authorized `release/letmeblock-1.3.0-2`
+from `3b4057d3`, native rebuild and publication to doimty.github.io. See
+`RELEASE-1.3.0-2.md`; the original test scope below is historical. No device
+installation or libSandy rebuild is authorized.
+
 ## Authorized scope and success criteria
 
 - Base `1d40608c37a52902a4e8d515d37bd5ff4f0dd6bf`; only push `feat/native-roothide` to `doimty/LetMeBlock`. Leave master/default branch unchanged.

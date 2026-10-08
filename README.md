@@ -1,12 +1,17 @@
 # LetMeBlock
 
-## Native RootHide candidate
+## Native RootHide rebuild release
 
 The `roothide` scheme targets iOS 15+ / arm64e and packages as
-`com.ps.letmeblock` **1.3.0-1+native1**, replacing rather than duplicating the
-existing package. Managed hosts paths use `jbroot()`; no rootless compatibility
-conversion is required. This is an unverified-on-device candidate, not a claim
-of successful DNS blocking or unchanged memory behavior on a particular OS.
+`com.ps.letmeblock` **1.3.0-2**, upgrading both the original 1.3.0 and the
+1.3.0-1+native1 test build. This is doimty's native rebuild of PoomSmart's MIT
+LetMeBlock, not an upstream release or a rewrite of its hook behavior. Managed
+hosts paths use `jbroot()`; no rootless compatibility conversion is required.
+Numeric archive ownership is root:root with unchanged payload/control bytes
+and modes. Official libSandy is reused, never rebuilt or bundled.
+
+See [release scope and validation](docs/RELEASE-1.3.0-2.md). A successful cloud
+build is not proof of device DNS blocking, sandbox/PAC behavior or energy gains.
 
 See [native build and API contract](docs/native-build.md) and
 [scope / success criteria](docs/native-port-plan.md). Local checks:
